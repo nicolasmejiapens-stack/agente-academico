@@ -96,7 +96,7 @@ def escanear():
         try:
             archivos = S.listar_archivos(svc, carpeta)
         except Exception as e:
-            log.error("No pude leer la carpeta de %s: %s", materia, type(e).__name__)
+            log.error("No pude leer la carpeta %s: %s", idx, type(e).__name__)
             resumen["problemas"].append(f"No pude leer la carpeta de {materia} (¿la compartiste con el robot?)")
             continue
 
@@ -118,7 +118,7 @@ def escanear():
             except Exception as e:
                 intentos += 1
                 estado = "ERROR_MANUAL" if intentos >= 3 else "PENDIENTE_IA"
-                log.error("Fallo con %s: %s", f["name"], type(e).__name__)
+                log.error("Fallo procesando un archivo de la materia %s: %s", idx, type(e).__name__)
                 if estado == "ERROR_MANUAL":
                     motivo = str(e) if isinstance(e, S.ErrorIA) else type(e).__name__
                     S.telegram(cfg, f"❌ No pude procesar '{f['name']}' ({materia}) tras 3 intentos: {motivo}")
@@ -139,16 +139,20 @@ def salud():
     return "ok"
 
 
+def probar_conexion():
+    sh = S.abrir_sheet()
+    cfg = S.leer_config(sh)
+    materias = [cfg.get(f"materia_{i}", "") for i in range(1, 5)]
+    enviado = S.telegram(cfg, "✅ Conexión funcionando.\nMaterias en Config:\n" + "\n".join(f"• {m}" for m in materias))
+    return {"sheet": "ok", "telegram": "ok" if enviado else "FALLÓ (revisa token y chat_id)"}
+
+
 @app.route("/probar")
 def probar():
     if not autorizado():
         return "No autorizado", 401
     try:
-        sh = S.abrir_sheet()
-        cfg = S.leer_config(sh)
-        materias = [cfg.get(f"materia_{i}", "") for i in range(1, 5)]
-        enviado = S.telegram(cfg, "✅ Conexión funcionando.\nMaterias en Config:\n" + "\n".join(f"• {m}" for m in materias))
-        return jsonify(sheet="ok", telegram="ok" if enviado else "FALLÓ (revisa token y chat_id)")
+        return jsonify(probar_conexion())
     except Exception as e:
         log.exception("Fallo en /probar")
         return jsonify(error=type(e).__name__), 500
