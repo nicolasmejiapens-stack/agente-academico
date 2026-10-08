@@ -260,3 +260,21 @@ def partir(texto, limite=3800):
     if actual:
         partes.append(actual)
     return partes
+
+
+_EN = {"the", "and", "of", "to", "in", "is", "that", "for", "with", "was", "were", "which", "this", "by",
+       "are", "from", "their", "have", "has", "his", "her", "they", "been", "not", "but", "these", "than"}
+_ES = {"el", "la", "los", "las", "de", "y", "en", "que", "un", "una", "es", "por", "con", "para", "se", "del",
+       "al", "como", "su", "más", "sus", "lo", "fue", "son", "esta", "este", "entre", "sobre"}
+
+
+def idioma(texto):
+    """'en', 'es', 'mixto' o 'desconocido', contando palabras muy comunes (sin usar IA)."""
+    palabras = re.findall(r"[a-záéíóúñü]+", (texto or "")[:8000].lower())
+    en = sum(1 for w in palabras if w in _EN)
+    es = sum(1 for w in palabras if w in _ES)
+    if en + es < 20:
+        return "desconocido"
+    if en > es * 1.5:
+        return "en"
+    return "es" if es > en * 1.5 else "mixto"
