@@ -18,13 +18,15 @@ concurrency:
 jobs:
   ejecutar:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+      - name: Instalar OCR (Tesseract en español)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng poppler-utils
       - run: pip install -r requirements.txt
       - run: python ejecutar.py ${{ inputs.modo || 'scan' }}
         env:
