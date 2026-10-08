@@ -30,7 +30,7 @@ def config_valida(materia, carpeta):
             and len(carpeta) >= 20 and " " not in carpeta and not carpeta.startswith("ID de"))
 
 
-def procesar_archivo(sh, cfg, svc, f, materia, idx, materias_con_programa, hoy):
+def procesar_archivo(sh, cfg, svc, f, materia, idx, materias_con_programa, hoy, inicio):
     """Devuelve (tipo, estado)."""
     nombre = f["name"]
     pista = bool(L.NOMBRE_PROGRAMA.search(nombre))
@@ -60,8 +60,8 @@ def procesar_archivo(sh, cfg, svc, f, materia, idx, materias_con_programa, hoy):
                         "Aún no lo puedo leer; falta agregar OCR.")
         return "programa", "REQUIERE_OCR"
 
-    prog = S.extraer_programa(cfg, materia, cfg.get("fecha_inicio_semestre", ""), texto)
-    res = L.construir_filas(materia, idx, prog, cfg.get("fecha_inicio_semestre", ""), hoy)
+    prog = S.extraer_programa(cfg, materia, inicio, texto)
+    res = L.construir_filas(materia, idx, prog, inicio, hoy)
     if not res["n_semanas"] and not res["evals"]:
         raise S.ErrorIA("El programa no produjo semanas ni evaluaciones")
     S.agregar(sh, "Cronograma_Semestral", res["cron"])
@@ -79,6 +79,11 @@ def escanear():
     vistos_ws = S.hoja_vistos(sh)
     zona = cfg.get("zona_horaria", "America/Bogota")
     hoy = datetime.now(ZoneInfo(zona)).date().isoformat()
+
+    inicio = L.fecha_iso(cfg.get("fecha_inicio_semestre"))
+    if not inicio:
+        S.telegram(cfg, "⚠️ En Config, 'fecha_inicio_semestre' no es una fecha válida. Escríbela así: 2026-08-03")
+        return {"ok": False, "procesados": 0, "pendientes_por_limite": 0, "problemas": ["fecha_inicio_semestre inválida"]}
 
     vistos, con_programa = {}, set()
     for n, fila in enumerate(vistos_ws.get_all_values()[1:], start=2):
@@ -113,7 +118,7 @@ def escanear():
             intentos = previo[2] if previo else 0
             tipo = ""
             try:
-                tipo, estado = procesar_archivo(sh, cfg, svc, f, materia, idx, con_programa, hoy)
+                tipo, estado = procesar_archivo(sh, cfg, svc, f, materia, idx, con_programa, hoy, inicio)
                 intentos = 0
             except Exception as e:
                 intentos += 1

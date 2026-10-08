@@ -38,8 +38,15 @@ def drive():
 
 
 def leer_config(sh):
-    filas = sh.worksheet("Config").get_all_values()[1:]
-    return {f[0].strip(): f[1].strip() for f in filas if len(f) >= 2 and f[0].strip()}
+    filas = sh.worksheet("Config").get_all_values(value_render_option="UNFORMATTED_VALUE")[1:]
+    cfg = {}
+    for f in filas:
+        if len(f) >= 2 and str(f[0]).strip():
+            v = f[1]
+            if isinstance(v, float) and v.is_integer():
+                v = int(v)
+            cfg[str(f[0]).strip()] = str(v).strip()
+    return cfg
 
 
 def hoja_vistos(sh):
@@ -122,6 +129,17 @@ def telegram(cfg, texto):
     except Exception as e:
         log.error("Telegram falló: %s", type(e).__name__)
         return False
+
+
+def tg(metodo, **datos):
+    """Llamada genérica a la API de Telegram. Nunca registra el token."""
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/{metodo}",
+                          json=datos, timeout=30)
+        return r.json() if r.content else {}
+    except Exception as e:
+        log.error("Telegram %s falló: %s", metodo, type(e).__name__)
+        return {}
 
 
 # ---------- IA con reintentos y respaldo ----------

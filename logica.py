@@ -17,10 +17,27 @@ def limpio(v):
 
 
 def fecha_iso(v):
-    try:
-        return date.fromisoformat(str(v).strip()[:10]).isoformat()
-    except Exception:
+    """Acepta ISO, dd/mm/aaaa o el número de serie que entrega Google Sheets."""
+    if v is None or v == "" or isinstance(v, bool):
         return None
+    s = str(v).strip()
+    if isinstance(v, (int, float)) or re.fullmatch(r"\d{5}(\.\d+)?", s):
+        try:
+            n = int(float(s))
+        except Exception:
+            return None
+        return (date(1899, 12, 30) + timedelta(days=n)).isoformat() if 20000 < n < 80000 else None
+    try:
+        return date.fromisoformat(s[:10]).isoformat()
+    except Exception:
+        pass
+    m = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", s)
+    if m:
+        try:
+            return date(int(m.group(3)), int(m.group(2)), int(m.group(1))).isoformat()
+        except Exception:
+            return None
+    return None
 
 
 def entero(v):
@@ -127,3 +144,68 @@ def mensaje_programa(materia, nombre_archivo, res):
         t.append("\n⚠️ Revisar:")
         t += [f"• {a}" for a in res["avisos"]]
     return "\n".join(t)
+
+
+# ---------- Recordatorios ----------
+DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def _cuando(d):
+    if d < 0:
+        return f"venció hace {-d} d"
+    return {0: "vence hoy", 1: "vence mañana"}.get(d, f"en {d} días")
+
+
+def _linea(t):
+    return f"• [{t['materia']}] {t['desc']} — {_cuando(t['dias'])}"
+
+
+def _boton(t):
+    return [{"text": "✅ " + t["desc"][:30], "callback_data": "ok|" + t["id"]}]
+
+
+def armar_resumen(tareas, hoy, modo="manana", max_botones=10):
+    """Devuelve (texto, botones). Texto vacío = no enviar nada."""
+    h = date.fromisoformat(hoy)
+    pend = []
+    for t in tareas:
+        if t["estado"] != "PENDIENTE" or t["id"].startswith("EJEMPLO"):
+            continue
+        d = (date.fromisoformat(t["fecha"]) - h).days if t["fecha"] else None
+        pend.append({**t, "dias": d})
+    atras = sorted([t for t in pend if t["dias"] is not None and t["dias"] < 0], key=lambda t: -t["dias"])
+    de_hoy = [t for t in pend if t["dias"] == 0]
+    semana = sorted([t for t in pend if t["dias"] is not None and 1 <= t["dias"] <= 7], key=lambda t: t["dias"])
+    fecha_txt = f"{DIAS[h.weekday()]} {h.day} {MESES[h.month - 1]}"
+
+    if modo == "noche":
+        lista = de_hoy + atras[:5]
+        if not lista:
+            return "", []
+        texto = f"🌙 Aún pendiente ({fecha_txt}):\n" + "\n".join(_linea(t) for t in lista)
+        return texto[:3900], [_boton(t) for t in lista[:max_botones]]
+
+    partes = [f"☀️ Buenos días — {fecha_txt}"]
+    alertas = [t for t in pend if t["tipo"] in ("parcial", "entrega") and t["dias"] in (7, 3, 1, 0)]
+    if alertas:
+        partes.append("\n🚨 Alertas:\n" + "\n".join(
+            f"• {t['desc']} ({t['materia']}): " + ("es HOY" if t["dias"] == 0 else f"faltan {t['dias']} días")
+            for t in alertas))
+    if atras:
+        extra = f" (mostrando 5 de {len(atras)})" if len(atras) > 5 else ""
+        partes.append(f"\n🔴 Atrasadas{extra}:\n" + "\n".join(_linea(t) for t in atras[:5]))
+    if de_hoy:
+        partes.append("\n📌 Para hoy:\n" + "\n".join(_linea(t) for t in de_hoy))
+    if semana:
+        extra = f"\n… y {len(semana) - 10} más" if len(semana) > 10 else ""
+        partes.append("\n📅 Próximos 7 días:\n" + "\n".join(_linea(t) for t in semana[:10]) + extra)
+    parciales = sorted([t for t in pend if t["tipo"] == "parcial" and t["dias"] is not None and t["dias"] >= 0],
+                       key=lambda t: t["dias"])
+    if parciales:
+        p = parciales[0]
+        partes.append(f"\n🎯 Próximo parcial: {p['desc']} ({p['materia']}) — {_cuando(p['dias'])}")
+    if not (atras or de_hoy or semana):
+        partes.append("\nSin pendientes para hoy ni esta semana 🎉")
+    lista = atras[:5] + de_hoy + semana
+    return "\n".join(partes)[:3900], [_boton(t) for t in lista[:max_botones]]
