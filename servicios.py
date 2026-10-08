@@ -244,24 +244,9 @@ TEXTO DEL PROGRAMA:
     return pedir_json(cfg, SYS_JSON, prompt, 7000)
 
 
-SYS_RES = ("Eres un asistente académico especializado en psicología. SIEMPRE escribes en español, aunque el texto "
-           "original esté en inglés u otro idioma. Cuando un término técnico importante esté en inglés, puedes dejar "
-           "el original entre paréntesis la primera vez que aparezca. Usas solo información presente en el texto; "
-           "si algo no aparece, lo dices. No uses formato Markdown (nada de asteriscos ni almohadillas).")
-
-SYS_TRAD = ("Eres un traductor académico de inglés a español, especializado en psicología. Traduces de forma fiel y "
-            "completa: no resumes, no omites ni añades nada. Mantienes los párrafos y los títulos. Mantienes EXACTAMENTE "
-            "cualquier marca como [[P12]] en su lugar. Los nombres de autores y los títulos de obras citadas no se "
-            "traducen. Respondes solo con la traducción, sin comentarios.")
-
-
-def traducir(cfg, trozos):
-    """Traduce una lista de trozos en paralelo (hasta 4 a la vez) conservando el orden."""
-    from concurrent.futures import ThreadPoolExecutor
-    def uno(t):
-        return llamar_ia(cfg, SYS_TRAD, "Traduce al español este texto:\n\n" + t, 5000).strip()
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        return list(ex.map(uno, trozos))
+SYS_RES = ("Eres un asistente académico especializado en psicología. Escribes en español claro y riguroso. "
+           "Usas solo información presente en el texto; si algo no aparece, lo dices. "
+           "No uses formato Markdown (nada de asteriscos ni almohadillas).")
 
 
 def asociar_lectura(cfg, nombre, muestra, candidatas):
