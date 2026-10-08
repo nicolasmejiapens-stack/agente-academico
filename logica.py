@@ -1,6 +1,7 @@
 """Lógica pura (sin conexiones externas): fechas, páginas y construcción de filas."""
 import re
 import uuid
+from collections import Counter
 from datetime import date, timedelta
 
 NOMBRE_PROGRAMA = re.compile(
@@ -209,3 +210,53 @@ def armar_resumen(tareas, hoy, modo="manana", max_botones=10):
         partes.append("\nSin pendientes para hoy ni esta semana 🎉")
     lista = atras[:5] + de_hoy + semana
     return "\n".join(partes)[:3900], [_boton(t) for t in lista[:max_botones]]
+
+
+# ---------- Páginas y texto (lecturas) ----------
+def numeros_de_pagina(texto):
+    """Números impresos que parecen número de página (primeras y últimas líneas)."""
+    lineas = [x.strip() for x in (texto or "").splitlines() if x.strip()]
+    nums = set()
+    for x in lineas[:3] + lineas[-3:]:
+        m = re.fullmatch(r"[\W_]*(\d{1,4})[\W_]*", x)
+        if not m and len(x) <= 80:
+            m = re.fullmatch(r"(\d{1,4})\s+[^\d]{3,}", x) or re.fullmatch(r"[^\d]{3,}\s+(\d{1,4})", x)
+        if m:
+            nums.add(int(m.group(1)))
+    return {n for n in nums if 1 <= n <= 2000}
+
+
+def decidir_offset(observaciones, min_votos=3):
+    """observaciones: [(pagina_pdf, {numeros})]. Devuelve el desfase (pág. PDF - pág. impresa) o None."""
+    c = Counter()
+    for p, nums in observaciones:
+        for n in nums:
+            if -10 <= p - n <= 120:
+                c[p - n] += 1
+    mc = c.most_common(2)
+    if not mc:
+        return None
+    off, votos = mc[0]
+    segundo = mc[1][1] if len(mc) > 1 else 0
+    return off if votos >= min_votos and votos >= 2 * segundo else None
+
+
+def partir(texto, limite=3800):
+    """Parte un texto largo en trozos que caben en un mensaje, cortando en saltos de línea."""
+    partes, actual = [], ""
+    for linea in (texto or "").split("\n"):
+        while len(linea) > limite:
+            if actual:
+                partes.append(actual)
+                actual = ""
+            partes.append(linea[:limite])
+            linea = linea[limite:]
+        if len(actual) + len(linea) + 1 > limite:
+            if actual:
+                partes.append(actual)
+            actual = linea
+        else:
+            actual = (actual + "\n" + linea) if actual else linea
+    if actual:
+        partes.append(actual)
+    return partes

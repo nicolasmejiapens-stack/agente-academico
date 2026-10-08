@@ -142,6 +142,24 @@ def tg(metodo, **datos):
         return {}
 
 
+def tg_documento(chat_id, nombre, datos, caption="", reply_markup=None):
+    """Envía un archivo a Telegram. Devuelve el file_id o None. Límite de Telegram: 50 MB."""
+    try:
+        limpio = re.sub(r"[^\w\-. ]+", "", nombre).strip() or "documento.pdf"
+        form = {"chat_id": chat_id, "caption": caption[:1000]}
+        if reply_markup:
+            form["reply_markup"] = json.dumps(reply_markup)
+        r = requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/sendDocument",
+                          data=form, files={"document": (limpio, datos)}, timeout=240)
+        j = r.json()
+        if j.get("ok"):
+            return j["result"]["document"]["file_id"]
+        log.error("sendDocument respondió %s", r.status_code)
+    except Exception as e:
+        log.error("sendDocument falló: %s", type(e).__name__)
+    return None
+
+
 # ---------- IA con reintentos y respaldo ----------
 def _llamar(modelo, system, prompt, max_tokens, intentos=4):
     cliente = anthropic.Anthropic(max_retries=0, timeout=120)
@@ -224,3 +242,49 @@ Reglas:
 TEXTO DEL PROGRAMA:
 {texto[:60000]}"""
     return pedir_json(cfg, SYS_JSON, prompt, 7000)
+
+
+SYS_RES = ("Eres un asistente académico especializado en psicología. Escribes en español claro y riguroso. "
+           "Usas solo información presente en el texto; si algo no aparece, lo dices. "
+           "No uses formato Markdown (nada de asteriscos ni almohadillas).")
+
+
+def asociar_lectura(cfg, nombre, muestra, candidatas):
+    """Devuelve la lista de IDs del programa que corresponden al archivo (puede ser más de una por libro)."""
+    lista = "\n".join(f"{r['id']} | semana {r['semana']} | {r['autor']} | {r['titulo']} | "
+                      f"pp. {r['pi'] if r['pi'] is not None else '?'}-{r['pf'] if r['pf'] is not None else '?'}"
+                      for r in candidatas[:80])
+    prompt = (f'Un estudiante subió el archivo "{nombre}". Inicio de su contenido:\n{muestra[:1500]}\n\n'
+              f"Lecturas del programa que aún no tienen archivo:\n{lista}\n\n"
+              'Devuelve {"ids": ["ID exacto", ...], "confianza": "alta" | "media" | "baja"}. '
+              "Incluye todas las lecturas que salen de ESTE archivo (un libro puede cubrir varios capítulos de varias semanas). "
+              "Si ninguna corresponde con claridad, devuelve ids vacío.")
+    j = pedir_json(cfg, SYS_JSON, prompt, 300)
+    validos = {r["id"] for r in candidatas}
+    if j.get("confianza") not in ("alta", "media"):
+        return []
+    return [i for i in (j.get("ids") or []) if i in validos]
+
+
+def resumir(cfg, materia, semana, titulo, autor, texto, profundo=True):
+    import logica as L
+    ctx = f'Materia: {materia}. Semana {semana}. Lectura: "{titulo}" de {autor}.'
+    if len(texto) > 90000:
+        bloques = L.partir(texto, 60000)
+        parciales = []
+        for i, b in enumerate(bloques, 1):
+            parciales.append(llamar_ia(
+                cfg, SYS_RES,
+                f"{ctx}\nResume este bloque ({i}/{len(bloques)}) conservando conceptos clave, autores, teorías, "
+                f"hallazgos y ejemplos importantes. Máximo 700 palabras.\n\nTEXTO:\n{b}", 1500))
+        texto = "\n\n".join(parciales)
+    if profundo:
+        prompt = (f"{ctx}\nEscribe un resumen académico profundo con estas secciones, cada una con su título en MAYÚSCULAS:\n"
+                  "IDEA CENTRAL\nCONCEPTOS CLAVE (definición breve de cada uno)\nAUTORES Y TEORÍAS\n"
+                  "HALLAZGOS O EVIDENCIA\nCRÍTICAS, LÍMITES Y RELACIÓN CON OTROS TEMAS\n"
+                  "PREGUNTAS PROBABLES DE PARCIAL (3 a 5)\n"
+                  'Si una sección no aplica, escribe "No aparece en este fragmento".\n\nTEXTO:\n' + texto)
+        return llamar_ia(cfg, SYS_RES, prompt, 3500).strip()
+    prompt = (f"{ctx}\nEs una lectura sugerida (no obligatoria). Resume en máximo 200 palabras: idea central, "
+              "3 a 5 conceptos clave y autores mencionados.\n\nTEXTO:\n" + texto)
+    return llamar_ia(cfg, SYS_RES, prompt, 900).strip()

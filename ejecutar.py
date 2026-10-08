@@ -19,7 +19,7 @@ try:
     else:
         r = main.escanear()
         print({"procesados": r["procesados"], "pendientes_por_limite": r["pendientes_por_limite"],
-               "problemas": len(r["problemas"])})
+               "lecturas": r.get("lecturas", {}), "problemas": len(r["problemas"])})
 except Exception as e:
     print("ERROR:", type(e).__name__)
     sys.exit(1)

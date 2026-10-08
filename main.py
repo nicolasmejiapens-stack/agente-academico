@@ -2,12 +2,14 @@ import hmac
 import logging
 import os
 import threading
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, request
 
 import logica as L
+import lecturas
 import servicios as S
 
 logging.basicConfig(level=logging.INFO)
@@ -17,7 +19,7 @@ LOCK = threading.Lock()
 
 MAX_POR_CORRIDA = 15
 LIMITE_BYTES = 15 * 1024 * 1024
-FINALES = {"PROCESADO", "SIN_PROCESAR", "REQUIERE_OCR", "ERROR_MANUAL", "OTRO", "DUPLICADO_REVISAR"}
+FINALES = {"PROCESADO", "SIN_PROCESAR", "REQUIERE_OCR", "ERROR_MANUAL", "OTRO", "DUPLICADO_REVISAR", "SIN_ASOCIAR"}
 
 
 def autorizado():
@@ -73,6 +75,7 @@ def procesar_archivo(sh, cfg, svc, f, materia, idx, materias_con_programa, hoy, 
 
 
 def escanear():
+    deadline = time.monotonic() + 17 * 60
     sh = S.abrir_sheet()
     cfg = S.leer_config(sh)
     svc = S.drive()
@@ -89,7 +92,7 @@ def escanear():
     for n, fila in enumerate(vistos_ws.get_all_values()[1:], start=2):
         fila += [""] * (7 - len(fila))
         if fila[0]:
-            vistos[fila[0]] = (n, fila[4], int(fila[5]) if fila[5].isdigit() else 0)
+            vistos[fila[0]] = (n, fila[4], int(fila[5]) if fila[5].isdigit() else 0, fila[3])
             if fila[3] == "programa" and fila[4] == "PROCESADO":
                 con_programa.add(fila[1])
 
@@ -109,7 +112,7 @@ def escanear():
             if not S.soportado(f):
                 continue
             previo = vistos.get(f["id"])
-            if previo and previo[1] in FINALES:
+            if previo and (previo[1] in FINALES or previo[3] == "lectura"):
                 continue
             if resumen["procesados"] >= MAX_POR_CORRIDA:
                 resumen["pendientes_por_limite"] += 1
@@ -134,8 +137,13 @@ def escanear():
                 vistos_ws.update(range_name=f"A{previo[0]}:G{previo[0]}", values=[fila])
             else:
                 vistos_ws.append_row(fila, value_input_option="USER_ENTERED")
-            vistos[f["id"]] = (previo[0] if previo else 0, estado, intentos)
+            vistos[f["id"]] = (previo[0] if previo else 0, estado, intentos, tipo)
             resumen["procesados"] += 1
+    try:
+        resumen["lecturas"] = lecturas.procesar_lecturas(sh, cfg, svc, hoy, deadline)
+    except Exception as e:
+        log.error("Fallo en la etapa de lecturas: %s", type(e).__name__)
+        resumen["problemas"].append("lecturas: " + type(e).__name__)
     return resumen
 
 
